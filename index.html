@@ -28,7 +28,7 @@
             left: 20px;
             top: 50%;
             transform: translateY(-50%);
-            z-index: 5;
+            z-index: 60;
             width: auto;
         }
 
@@ -47,15 +47,17 @@
             width: 100%;
             height: 100vh;
             display: flex;
-            justify-content: center;
+            justify-content: flex-end;
             align-items: flex-start;
             padding: 10px 20px;
             padding-top: 10vh;
+            padding-right: 40px;
+            gap: 20px;
         }
 
         .gacha-machine {
             position: relative;
-            z-index: 10;
+            z-index: 50;
             cursor: pointer;
             transition: transform 0.2s;
             width: auto;
@@ -64,8 +66,7 @@
             max-height: min(85vh, 700px);
             width: min(60vw, 600px);
             height: auto;
-            margin-right: -100px;
-            margin-top: -40px;
+            flex-shrink: 0;
         }
 
         .gacha-machine:hover {
@@ -110,6 +111,16 @@
             display: block;
         }
 
+        .tip-image {
+            width: 250px;
+            height: auto;
+            max-height: 800px;
+            flex-shrink: 0;
+            align-self: center;
+            position: relative;
+            z-index: 55;
+        }
+
         .coin {
             position: absolute;
             width: 100px;
@@ -121,7 +132,7 @@
             cursor: grab;
             user-select: none;
             transition: transform 0.2s;
-            z-index: 1;
+            z-index: 1; /* render coins underneath gacha/title/tip */
             object-fit: contain;
         }
 
@@ -135,7 +146,7 @@
 
         .coin.dragging {
             opacity: 0.5;
-            z-index: 100;
+            z-index: 1000; /* bring to front while dragging so user can drop into gacha */
         }
 
         .ball {
@@ -286,14 +297,15 @@
 
             .game-container {
                 height: 100vh;
+                justify-content: flex-end;
+                padding-right: 30px;
+                gap: 15px;
             }
 
             .gacha-machine {
                 max-width: 70vw;
                 max-height: 75vh;
                 width: 70vw;
-                margin-right: -80px;
-                margin-top: -30px;
             }
         }
 
@@ -312,12 +324,18 @@
                 max-width: 75vw;
                 max-height: 70vh;
                 width: 75vw;
-                margin-right: -60px;
-                margin-top: -20px;
             }
 
             .game-container {
                 height: 100vh;
+                gap: 10px;
+                justify-content: flex-end;
+                padding-right: 20px;
+            }
+
+            .tip-image {
+                width: 160px;
+                max-height: 600px;
             }
 
             .coin {
@@ -357,6 +375,7 @@
             <img src="asset/gasha.png" alt="扭蛋机" draggable="false">
             <img src="asset/ball.png" alt="扭蛋" class="ball" id="ball">
         </div>
+        <img src="asset/tip.png" alt="提示" class="tip-image" draggable="false">
     </div>
 
     <div class="gift-modal" id="giftModal">
@@ -366,7 +385,37 @@
     </div>
 
     <script>
-        let coinCount = 0;
+    let coinCount = 0;
+        // Debug flag: set true to print why candidate positions are rejected (can toggle in console)
+        let COIN_DEBUG = false;
+    // Measured coin radius and minimal coin distance (computed at runtime)
+    let COIN_RADIUS = null; // will be filled by getCoinRadius()
+    let MIN_COIN_DISTANCE = null;
+    // Target number of coins to keep on screen
+    const TARGET_COINS = 18;
+
+        // Measure the rendered coin size (returns radius in page pixels)
+        function getCoinRadius() {
+            // If we already measured, return cached value
+            if (COIN_RADIUS) return COIN_RADIUS;
+            // Create a temporary coin element offscreen to measure
+            const temp = document.createElement('img');
+            temp.src = 'asset/coin.png';
+            temp.className = 'coin';
+            temp.style.position = 'absolute';
+            temp.style.left = '-9999px';
+            temp.style.top = '-9999px';
+            temp.style.opacity = '0';
+            document.body.appendChild(temp);
+            // force layout
+            const rect = temp.getBoundingClientRect();
+            const radius = Math.max(rect.width, rect.height) / 2 || 50;
+            temp.remove();
+            COIN_RADIUS = radius;
+            MIN_COIN_DISTANCE = COIN_RADIUS * 2;
+            if (COIN_DEBUG) console.log('Measured coin radius:', COIN_RADIUS, 'minDistance:', MIN_COIN_DISTANCE);
+            return COIN_RADIUS;
+        }
         const gameContainer = document.getElementById('gameContainer');
         const gachaMachine = document.getElementById('gachaMachine');
         const ball = document.getElementById('ball');
@@ -374,52 +423,171 @@
         const giftImage = document.getElementById('giftImage');
         const coinCountDisplay = document.getElementById('coinCount');
         
-        const gifts = ['asset/bell.png', 'asset/socks.png', 'asset/hat.png', 'asset/snowflake.png', 'asset/elf.png'];
+    const gifts = ['asset/bell.png', 'asset/socks.png', 'asset/hat.png', 'asset/snowflake.png', 'asset/elf.png', 'asset/santa.png'];
         let coins = [];
 
-        // 创建单个硬币
-        function createSingleCoin() {
-            const containerRect = gameContainer.getBoundingClientRect();
-            
+        // Helper: create a coin at a page-coordinate (x,y)
+        function createCoinAtPage(pageX, pageY) {
             const coin = document.createElement('img');
             coin.src = 'asset/coin.png';
             coin.className = 'coin';
             coin.draggable = true;
-            
-            // 随机位置，避免重叠
-            let x, y;
-            let attempts = 0;
-            do {
-                x = Math.random() * (containerRect.width - 100) + 50;
-                y = Math.random() * (containerRect.height - 100) + 100;
-                attempts++;
-            } while (attempts < 50 && isOverlapping(x, y, coins));
-            
-            coin.style.left = x + 'px';
-            coin.style.top = y + 'px';
-            
-            // 拖拽事件
+
+            const containerRect = gameContainer.getBoundingClientRect();
+            const left = pageX - containerRect.left;
+            const top = pageY - containerRect.top;
+
+            coin.style.left = Math.max(0, Math.min(left, containerRect.width - 40)) + 'px';
+            coin.style.top = Math.max(0, Math.min(top, containerRect.height - 40)) + 'px';
+
             coin.addEventListener('dragstart', handleDragStart);
             coin.addEventListener('dragend', handleDragEnd);
-            
+
             gameContainer.appendChild(coin);
-            coins.push({ element: coin, x, y });
+            coins.push({ element: coin, x: pageX, y: pageY });
+            console.log('Coin created at:', pageX, pageY, 'Total coins:', coins.length);
+            // Sanity check: warn if this coin is too close to gacha
+            try {
+                const gRect = gachaMachine.getBoundingClientRect();
+                const d = pointRectDistance(pageX, pageY, { left: gRect.left, right: gRect.right, top: gRect.top, bottom: gRect.bottom });
+                const measured = COIN_RADIUS || getCoinRadius();
+                if (d < measured + 5) {
+                    console.warn('Sanity: coin created too close to gacha:', pageX, pageY, 'distToGacha:', d, 'measuredRadius:', measured);
+                }
+            } catch (err) {
+                // ignore
+            }
         }
 
-        // 创建散落的硬币
-        function createCoins() {
-            const numCoins = 8; // 初始硬币数量
-            for (let i = 0; i < numCoins; i++) {
-                createSingleCoin();
+        // Add N coins arranged around gacha in a deterministic ring, avoiding title/gasha/tip
+        function addCoinsAroundGacha(count) {
+            if (count <= 0) return;
+            const gashaRect = gachaMachine.getBoundingClientRect();
+            const tipEl = document.querySelector('.tip-image');
+            const tipRect = tipEl ? tipEl.getBoundingClientRect() : null;
+            const titleRect = document.querySelector('.title-container').getBoundingClientRect();
+
+            // ensure we have an up-to-date coin radius
+            const measuredRadius = getCoinRadius();
+
+            const gCenterX = gashaRect.left + gashaRect.width / 2;
+            const gCenterY = gashaRect.top + gashaRect.height / 2;
+            const gRadius = Math.max(gashaRect.width, gashaRect.height) / 2;
+
+            function inRect(x, y, rect, pad = 0) {
+                return x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad;
             }
+
+            // distance from a point to a rect (0 if inside rect)
+            function pointRectDistance(px, py, rect) {
+                const dx = Math.max(rect.left - px, 0, px - rect.right);
+                const dy = Math.max(rect.top - py, 0, py - rect.bottom);
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+
+            // Treat coin as circle with COIN_RADIUS; it's forbidden if its circle intersects any forbidden rect
+            function inForbidden(x, y) {
+                const pad = 8;
+                // title
+                if (pointRectDistance(x, y, { left: titleRect.left - pad, right: titleRect.right + pad, top: titleRect.top - pad, bottom: titleRect.bottom + pad }) < measuredRadius) {
+                    if (COIN_DEBUG) console.log('reject: near title', x, y);
+                    return true;
+                }
+                // gasha - ensure the coin circle doesn't intersect gacha rect
+                const GACHA_SAFE = measuredRadius + 10; // extra safety gap in px
+                if (pointRectDistance(x, y, { left: gashaRect.left, right: gashaRect.right, top: gashaRect.top, bottom: gashaRect.bottom }) < GACHA_SAFE) {
+                    if (COIN_DEBUG) console.log('reject: near gasha', x, y);
+                    return true;
+                }
+                if (tipRect) {
+                    if (pointRectDistance(x, y, { left: tipRect.left - pad, right: tipRect.right + pad, top: tipRect.top - pad, bottom: tipRect.bottom + pad }) < measuredRadius) {
+                        if (COIN_DEBUG) console.log('reject: near tip', x, y);
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            const target = Math.max(TARGET_COINS, count);
+            let placed = 0;
+
+            // Try different radii until we can place the full ring without forbidden overlaps
+            const minRadius = gRadius + 90;
+            const maxRadius = gRadius + 350;
+            const radiusStep = 20;
+            let success = false;
+
+            for (let r = minRadius; r <= maxRadius; r += radiusStep) {
+                const positions = [];
+                let ok = true;
+                for (let i = 0; i < target; i++) {
+                    const angle = (Math.PI * 2) * (i / target);
+                    const jitter = (Math.random() - 0.5) * (Math.PI * 2 / target) * 0.2; // small angle jitter
+                    const pageX = gCenterX + Math.cos(angle + jitter) * r;
+                    const pageY = gCenterY + Math.sin(angle + jitter) * r;
+
+                    if (pageX < 20 || pageX > window.innerWidth - 20 || pageY < 20 || pageY > window.innerHeight - 20) { ok = false; break; }
+                    if (inForbidden(pageX, pageY)) { ok = false; break; }
+                    if (isOverlapping(pageX, pageY, coins)) { ok = false; break; }
+                    positions.push({ x: pageX, y: pageY });
+                }
+
+                if (ok) {
+                    // we found a radius where all target positions are valid
+                    for (const p of positions) {
+                        createCoinAtPage(p.x, p.y);
+                        placed++;
+                        if (placed >= count) break;
+                    }
+                    success = true;
+                    break;
+                }
+            }
+
+            // If couldn't place a full deterministic ring, try greedy placement around gasha
+            if (!success) {
+                const angleStep = (Math.PI * 2) / target;
+                let attempts = 0;
+                for (let i = 0; i < target && placed < count && attempts < 1000; i++) {
+                    attempts++;
+                    const angle = i * angleStep + (Math.random() - 0.5) * (angleStep * 0.3);
+                    const radius = gRadius + 100 + Math.random() * 200;
+                    const pageX = gCenterX + Math.cos(angle) * radius;
+                    const pageY = gCenterY + Math.sin(angle) * radius;
+                    if (pageX < 20 || pageX > window.innerWidth - 20 || pageY < 20 || pageY > window.innerHeight - 20) continue;
+                    if (inForbidden(pageX, pageY)) continue;
+                    if (isOverlapping(pageX, pageY, coins)) continue;
+                    createCoinAtPage(pageX, pageY);
+                    placed++;
+                }
+            }
+
+            // Fallback fill safe right-bottom area
+            let safety = 0;
+            while (placed < count && safety < 500) {
+                safety++;
+                const pageX = Math.random() * (window.innerWidth * 0.25) + (window.innerWidth * 0.7);
+                const pageY = Math.random() * (window.innerHeight * 0.35) + (window.innerHeight * 0.55);
+                if (inForbidden(pageX, pageY)) continue;
+                if (isOverlapping(pageX, pageY, coins)) continue;
+                createCoinAtPage(pageX, pageY);
+                placed++;
+            }
+        }
+
+        // 创建散落的硬币（确保至少 10 个可见）
+        function createCoins() {
+            const target = TARGET_COINS; // 初始至少显示的硬币数
+            console.log('Creating up to', target, 'coins');
+            addCoinsAroundGacha(target - coins.length);
+            console.log('Total coins after init:', coins.length);
         }
 
         function isOverlapping(x, y, existingCoins) {
             for (let coin of existingCoins) {
-                const distance = Math.sqrt(
-                    Math.pow(x - coin.x, 2) + Math.pow(y - coin.y, 2)
-                );
-                if (distance < 80) {
+                const distance = Math.sqrt(Math.pow(x - coin.x, 2) + Math.pow(y - coin.y, 2));
+                if (distance < MIN_COIN_DISTANCE) {
+                    if (COIN_DEBUG) console.log('reject: overlap with coin', x, y, 'existing', coin.x, coin.y, 'dist', distance);
                     return true;
                 }
             }
@@ -458,13 +626,24 @@
                     coins = coins.filter(c => c.element !== draggedCoin);
                     draggedCoin = null;
                     
-                    // 自动生成新硬币
-                    createSingleCoin();
+                    // 增加硬币计数
+                    coinCount++;
+                    coinCountDisplay.textContent = coinCount;
+                    
+                    // 生成新硬币，确保至少有 TARGET_COINS 个
+                    const needed = TARGET_COINS - coins.length;
+                    if (needed > 0) addCoinsAroundGacha(needed);
+
+                    // 播放扭蛋机旋钮动画并显示扭蛋（drop 后出现）
+                    gachaMachine.classList.add('rotating');
+                    setTimeout(() => {
+                        gachaMachine.classList.remove('rotating');
+                    }, 600);
+                    // 在旋转稍后显示扭蛋，保持和点击抽取时相同的延迟
+                    setTimeout(() => {
+                        ball.style.display = 'block';
+                    }, 400);
                 }, 300);
-                
-                // 增加硬币计数
-                coinCount++;
-                coinCountDisplay.textContent = coinCount;
             }
         });
 
@@ -500,6 +679,40 @@
         giftModal.addEventListener('click', (e) => {
             giftModal.classList.remove('show');
         });
+
+        // 初始化
+        // Expose debug helpers to window so you can toggle and inspect from DevTools
+        window.enableCoinDebug = function() { COIN_DEBUG = true; console.log('COIN_DEBUG = true'); };
+        window.disableCoinDebug = function() { COIN_DEBUG = false; console.log('COIN_DEBUG = false'); };
+    window.refillCoins = function() { const needed = TARGET_COINS - coins.length; if (needed > 0) addCoinsAroundGacha(needed); else console.log('no refill needed'); };
+
+        // Draw outlines for forbidden rects (temporary visual aid)
+        window.showForbiddenRects = function() {
+            const existing = document.querySelectorAll('.debug-rect');
+            existing.forEach(e => e.remove());
+            const g = gachaMachine.getBoundingClientRect();
+            const t = document.querySelector('.title-container').getBoundingClientRect();
+            const tipEl = document.querySelector('.tip-image');
+            const tipR = tipEl ? tipEl.getBoundingClientRect() : null;
+
+            function makeRect(rect, color) {
+                const d = document.createElement('div');
+                d.className = 'debug-rect';
+                d.style.position = 'fixed';
+                d.style.left = rect.left + 'px';
+                d.style.top = rect.top + 'px';
+                d.style.width = (rect.right - rect.left) + 'px';
+                d.style.height = (rect.bottom - rect.top) + 'px';
+                d.style.border = '3px dashed ' + color;
+                d.style.zIndex = 2000;
+                d.style.pointerEvents = 'none';
+                document.body.appendChild(d);
+            }
+
+            makeRect(g, 'red');
+            makeRect(t, 'yellow');
+            if (tipR) makeRect(tipR, 'blue');
+        };
 
         // 初始化
         createCoins();
