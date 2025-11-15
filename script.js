@@ -4,16 +4,36 @@ let COIN_DEBUG = false;
 // Measured coin radius and minimal coin distance (computed at runtime)
 let COIN_RADIUS = null; // will be filled by getCoinRadius()
 let MIN_COIN_DISTANCE = null;
-// Target number of coins to keep on screen
-const TARGET_COINS = 18;
+// Target number of coins to keep on screen (reduced for better performance)
+const TARGET_COINS = 10;
 // Initial coins to load (reduced for faster initial load, especially on mobile)
-const INITIAL_COINS = 12;
+const INITIAL_COINS = 6;
 
 // Measure the rendered coin size (returns radius in page pixels)
 function getCoinRadius() {
     // If we already measured, return cached value
     if (COIN_RADIUS) return COIN_RADIUS;
-    // Create a temporary coin element offscreen to measure
+    // Use a default value first to avoid blocking, then measure when coin is actually loaded
+    // This prevents blocking initial render
+    const defaultRadius = 50;
+    COIN_RADIUS = defaultRadius;
+    MIN_COIN_DISTANCE = COIN_RADIUS * 2;
+    
+    // Measure actual size asynchronously (after page load)
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', measureCoinSize);
+    } else {
+        // Use setTimeout to defer measurement after initial render
+        setTimeout(measureCoinSize, 100);
+    }
+    
+    return COIN_RADIUS;
+}
+
+// Measure actual coin size (called asynchronously)
+function measureCoinSize() {
+    if (COIN_RADIUS && COIN_RADIUS !== 50) return; // Already measured with actual value
+    
     const temp = document.createElement('img');
     temp.src = 'asset/coin.png';
     temp.className = 'coin';
@@ -21,15 +41,23 @@ function getCoinRadius() {
     temp.style.left = '-9999px';
     temp.style.top = '-9999px';
     temp.style.opacity = '0';
+    temp.loading = 'eager'; // Load immediately for measurement
     document.body.appendChild(temp);
-    // force layout
-    const rect = temp.getBoundingClientRect();
-    const radius = Math.max(rect.width, rect.height) / 2 || 50;
-    temp.remove();
-    COIN_RADIUS = radius;
-    MIN_COIN_DISTANCE = COIN_RADIUS * 2;
-    if (COIN_DEBUG) console.log('Measured coin radius:', COIN_RADIUS, 'minDistance:', MIN_COIN_DISTANCE);
-    return COIN_RADIUS;
+    
+    // Wait for image to load before measuring
+    temp.onload = () => {
+        const rect = temp.getBoundingClientRect();
+        const radius = Math.max(rect.width, rect.height) / 2 || 50;
+        COIN_RADIUS = radius;
+        MIN_COIN_DISTANCE = COIN_RADIUS * 2;
+        temp.remove();
+        if (COIN_DEBUG) console.log('Measured coin radius:', COIN_RADIUS, 'minDistance:', MIN_COIN_DISTANCE);
+    };
+    
+    temp.onerror = () => {
+        // If image fails to load, keep default
+        temp.remove();
+    };
 }
 const gameContainer = document.getElementById('gameContainer');
 const gachaMachine = document.getElementById('gachaMachine');
@@ -40,6 +68,38 @@ const coinCountDisplay = document.getElementById('coinCount');
 
 const gifts = ['asset/bell.png', 'asset/socks.png', 'asset/hat.png', 'asset/snowflake.png', 'asset/elf.png', 'asset/santa.png'];
 let coins = [];
+
+// 图片预加载函数（延迟加载非关键图片）
+function preloadImages(urls, callback) {
+    let loaded = 0;
+    const total = urls.length;
+    if (total === 0) {
+        if (callback) callback();
+        return;
+    }
+    
+    urls.forEach(url => {
+        const img = new Image();
+        img.onload = img.onerror = () => {
+            loaded++;
+            if (loaded === total && callback) callback();
+        };
+        img.src = url;
+    });
+}
+
+// 延迟预加载非关键图片（在关键图片加载完成后）
+function preloadNonCriticalImages() {
+    // 延迟加载礼物图片和tip图片
+    setTimeout(() => {
+        const nonCriticalImages = [
+            'asset/tip.png',
+            'asset/ball.png',
+            ...gifts
+        ];
+        preloadImages(nonCriticalImages);
+    }, 1000); // 延迟1秒，让关键图片先加载
+}
 
 // Helper: check if a point is in viewport and not blocked by UI elements
 function isInViewport(x, y) {
@@ -96,6 +156,7 @@ function createCoinAtPage(pageX, pageY) {
     coin.src = 'asset/coin.png';
     coin.className = 'coin';
     coin.draggable = true;
+    coin.loading = 'lazy'; // Lazy load coin images for better performance
 
     const containerRect = gameContainer.getBoundingClientRect();
     const left = pageX - containerRect.left;
@@ -501,6 +562,16 @@ window.showForbiddenRects = function() {
 // 初始化 - 确保ball初始隐藏
 if (ball) {
     ball.style.display = 'none';
+}
+
+// 页面加载完成后预加载非关键图片
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        preloadNonCriticalImages();
+    });
+} else {
+    // DOM already loaded
+    preloadNonCriticalImages();
 }
 
 // 初始化硬币（延迟加载以提高性能）

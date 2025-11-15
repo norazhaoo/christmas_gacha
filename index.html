@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>christmas gacha</title>
+    <!-- 预加载关键图片 -->
+    <link rel="preload" as="image" href="asset/background.png">
+    <link rel="preload" as="image" href="asset/gasha.png">
+    <link rel="preload" as="image" href="asset/title.png">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,15 +16,15 @@
     </div>
 
     <div class="title-container">
-        <img src="asset/title.png" alt="圣诞扭蛋机" class="title-image">
+        <img src="asset/title.png" alt="圣诞扭蛋机" class="title-image" loading="eager">
     </div>
 
     <div class="game-container" id="gameContainer">
         <div class="gacha-machine" id="gachaMachine">
-            <img src="asset/gasha.png" alt="扭蛋机" draggable="false">
-            <img src="asset/ball.png" alt="扭蛋" class="ball" id="ball">
+            <img src="asset/gasha.png" alt="扭蛋机" draggable="false" loading="eager">
+            <img src="asset/ball.png" alt="扭蛋" class="ball" id="ball" loading="lazy">
         </div>
-        <img src="asset/tip.png" alt="提示" class="tip-image" draggable="false">
+        <img src="asset/tip.png" alt="提示" class="tip-image" draggable="false" loading="lazy">
     </div>
 
     <div class="gift-modal" id="giftModal">

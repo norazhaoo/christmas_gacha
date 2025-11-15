@@ -6,6 +6,8 @@
 
 body {
     font-family: 'Arial', sans-serif;
+    /* 添加占位背景色，在背景图片加载前显示 */
+    background-color: #f0e6d2;
     background-image: url('asset/background.png');
     background-size: cover;
     background-position: center;
