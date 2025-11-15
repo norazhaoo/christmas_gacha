@@ -1,0 +1,368 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background-image: url('asset/background.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    height: 100vh;
+    position: relative;
+    overflow: hidden;
+}
+
+.title-container {
+    position: fixed;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 60;
+    width: auto;
+}
+
+.title-image {
+    max-width: 40vw;
+    max-height: 80vh;
+    min-height: 250px;
+    display: block;
+    transform: rotate(-8deg);
+}
+
+.game-container {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 30px 40px 30px 20px;
+    gap: 20px;
+    box-sizing: border-box;
+}
+
+.gacha-machine {
+    position: relative;
+    z-index: 50;
+    cursor: pointer;
+    transition: transform 0.2s;
+    width: min(60vw, 600px);
+    max-width: min(60vw, 600px);
+    max-height: calc(100vh - 60px);
+    height: auto;
+    flex-shrink: 1;
+    box-sizing: border-box;
+}
+
+.gacha-machine:hover {
+    transform: scale(1.05);
+}
+
+.gacha-machine:active {
+    transform: scale(0.95);
+}
+
+.gacha-machine.rotating {
+    animation: rotateKnob 0.6s ease-in-out;
+    transform-origin: center bottom;
+}
+
+.gacha-machine.rotating:hover {
+    transform: none;
+}
+
+@keyframes rotateKnob {
+    0% {
+        transform: rotate(0deg);
+    }
+    25% {
+        transform: rotate(-20deg);
+    }
+    50% {
+        transform: rotate(20deg);
+    }
+    75% {
+        transform: rotate(-10deg);
+    }
+    100% {
+        transform: rotate(0deg);
+    }
+}
+
+.gacha-machine img {
+    max-width: 100%;
+    width: 100%;
+    height: auto;
+    max-height: calc(100vh - 60px);
+    display: block;
+    object-fit: contain;
+}
+
+.tip-image {
+    width: 250px;
+    height: auto;
+    max-height: 800px;
+    flex-shrink: 0;
+    align-self: center;
+    position: relative;
+    z-index: 55;
+}
+
+.coin {
+    position: absolute;
+    width: 100px;
+    height: 100px;
+    min-width: 80px;
+    min-height: 80px;
+    max-width: 15vw;
+    max-height: 15vh;
+    cursor: grab;
+    user-select: none;
+    transition: transform 0.2s;
+    z-index: 1; /* render coins underneath gacha/title/tip */
+    object-fit: contain;
+}
+
+.coin:active {
+    cursor: grabbing;
+}
+
+.coin:hover {
+    transform: scale(1.1);
+}
+
+.coin.dragging {
+    opacity: 0.5;
+    z-index: 1000; /* bring to front while dragging so user can drop into gacha */
+}
+
+.ball {
+    position: absolute;
+    width: 250px;
+    height: 250px;
+    min-width: 200px;
+    min-height: 200px;
+    max-width: 40vw;
+    max-height: 40vh;
+    cursor: pointer;
+    display: none;
+    z-index: 15;
+    object-fit: contain;
+    animation: popIn 0.5s ease-out;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+@keyframes popIn {
+    0% {
+        transform: translate(-50%, -50%) scale(0);
+        opacity: 0;
+    }
+    50% {
+        transform: translate(-50%, -50%) scale(1.2);
+    }
+    100% {
+        transform: translate(-50%, -50%) scale(1);
+        opacity: 1;
+    }
+}
+
+.ball:hover {
+    transform: translate(-50%, -50%) scale(1.1);
+    transition: transform 0.2s;
+}
+
+.gift-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+    animation: fadeIn 0.3s;
+}
+
+.gift-modal.show {
+    display: flex;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.gift-content {
+    background: transparent;
+    padding: 0;
+    text-align: center;
+    animation: scaleIn 0.3s;
+    max-width: 90vw;
+}
+
+@keyframes scaleIn {
+    from {
+        transform: scale(0.5);
+    }
+    to {
+        transform: scale(1);
+    }
+}
+
+.gift-image {
+    max-width: 400px;
+    max-height: 70vh;
+    animation: bounce 0.5s ease;
+    cursor: pointer;
+}
+
+@keyframes bounce {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-20px);
+    }
+}
+
+.coin-count-display {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(255, 255, 255, 0.9);
+    padding: 15px 25px;
+    border-radius: 25px;
+    font-size: 1.2em;
+    font-weight: bold;
+    color: #d32f2f;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    z-index: 20;
+}
+
+/* 响应式设计 - 避免title和扭蛋机重叠 */
+@media (max-width: 1200px) {
+    .title-container {
+        left: 10px;
+    }
+    
+    .title-image {
+        max-width: 30vw;
+        max-height: 60vh;
+    }
+}
+
+@media (max-width: 900px) {
+    .title-container {
+        left: 5px;
+        top: 10%;
+        transform: translateY(0);
+    }
+    
+    .title-image {
+        max-width: 25vw;
+        max-height: 50vh;
+        min-height: 150px;
+    }
+    
+    .game-container {
+        padding: 30px 20px 30px 5px;
+    }
+    
+    .gacha-machine {
+        width: min(70vw, 500px);
+        max-width: min(70vw, 500px);
+        max-height: calc(100vh - 60px);
+    }
+    
+    .gacha-machine img {
+        max-height: calc(100vh - 60px);
+    }
+}
+
+@media (max-width: 768px) {
+    .title-container {
+        position: absolute;
+        left: 5px;
+        top: 5px;
+        transform: none;
+        z-index: 40;
+    }
+    
+    .title-image {
+        max-width: 200px;
+        max-height: 120px;
+        min-height: 80px;
+    }
+    
+    .game-container {
+        padding: 100px 10px 30px 10px;
+        justify-content: center;
+    }
+    
+    .gacha-machine {
+        width: min(85vw, 400px);
+        max-width: min(85vw, 400px);
+        max-height: calc(100vh - 130px);
+    }
+    
+    .gacha-machine img {
+        max-height: calc(100vh - 130px);
+    }
+    
+    .tip-image {
+        width: 150px;
+        max-height: 500px;
+    }
+}
+
+@media (max-width: 480px) {
+    .title-container {
+        top: 2px;
+        left: 2px;
+    }
+    
+    .title-image {
+        max-width: 150px;
+        max-height: 100px;
+        min-height: 60px;
+    }
+    
+    .game-container {
+        padding: 90px 5px 30px 5px;
+    }
+    
+    .gacha-machine {
+        width: min(90vw, 350px);
+        max-width: min(90vw, 350px);
+        max-height: calc(100vh - 120px);
+    }
+    
+    .gacha-machine img {
+        max-height: calc(100vh - 120px);
+    }
+    
+    .tip-image {
+        width: 120px;
+        max-height: 400px;
+    }
+    
+    .coin-count-display {
+        top: 10px;
+        right: 10px;
+        padding: 10px 15px;
+        font-size: 1em;
+    }
+}
+
