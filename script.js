@@ -83,8 +83,14 @@ function createCoinAtPage(pageX, pageY) {
     coin.style.left = Math.max(0, Math.min(left, containerRect.width - 40)) + 'px';
     coin.style.top = Math.max(0, Math.min(top, containerRect.height - 40)) + 'px';
 
+    // Desktop drag events
     coin.addEventListener('dragstart', handleDragStart);
     coin.addEventListener('dragend', handleDragEnd);
+    
+    // Mobile touch events
+    coin.addEventListener('touchstart', handleTouchStart, { passive: false });
+    coin.addEventListener('touchmove', handleTouchMove, { passive: false });
+    coin.addEventListener('touchend', handleTouchEnd, { passive: false });
 
     gameContainer.appendChild(coin);
     coins.push({ element: coin, x: pageX, y: pageY });
@@ -106,13 +112,16 @@ function createCoinAtPage(pageX, pageY) {
 // Add N coins arranged around title, tip and gacha evenly
 function addCoinsAroundGacha(count) {
     if (count <= 0) return;
-    const gashaRect = gachaMachine.getBoundingClientRect();
-    const tipEl = document.querySelector('.tip-image');
-    const tipRect = tipEl ? tipEl.getBoundingClientRect() : null;
-    const titleRect = document.querySelector('.title-container').getBoundingClientRect();
+    
+    // Use requestAnimationFrame to avoid blocking initial render
+    requestAnimationFrame(() => {
+        const gashaRect = gachaMachine.getBoundingClientRect();
+        const tipEl = document.querySelector('.tip-image');
+        const tipRect = tipEl ? tipEl.getBoundingClientRect() : null;
+        const titleRect = document.querySelector('.title-container').getBoundingClientRect();
 
-    // ensure we have an up-to-date coin radius
-    const measuredRadius = getCoinRadius();
+        // ensure we have an up-to-date coin radius
+        const measuredRadius = getCoinRadius();
 
     // Calculate centers and radii for all three elements
     const elements = [];
@@ -163,22 +172,20 @@ function addCoinsAroundGacha(count) {
     let placed = 0;
     const coinsPerElement = Math.ceil(count / elements.length);
 
-    // Distribute coins around each element
+    // Distribute coins around each element (simplified for performance)
     for (const element of elements) {
         if (placed >= count) break;
         
         const coinsForThisElement = Math.min(coinsPerElement, count - placed);
         const angleStep = (Math.PI * 2) / coinsForThisElement;
         const minRadius = element.radius + measuredRadius + 30;
-        const maxRadius = element.radius + measuredRadius + 200;
+        const maxRadius = element.radius + measuredRadius + 150; // Reduced range for faster placement
         
-        let attempts = 0;
         let placedForElement = 0;
         
-        // Try to place coins in a ring around this element
-        for (let i = 0; i < coinsForThisElement && placedForElement < coinsForThisElement && attempts < 500; i++) {
-            attempts++;
-            const angle = i * angleStep + (Math.random() - 0.5) * (angleStep * 0.4);
+        // Try to place coins in a ring around this element (simplified)
+        for (let i = 0; i < coinsForThisElement && placedForElement < coinsForThisElement; i++) {
+            const angle = i * angleStep + (Math.random() - 0.5) * (angleStep * 0.3);
             const radius = minRadius + Math.random() * (maxRadius - minRadius);
             const pageX = element.centerX + Math.cos(angle) * radius;
             const pageY = element.centerY + Math.sin(angle) * radius;
@@ -193,9 +200,10 @@ function addCoinsAroundGacha(count) {
         }
     }
 
-    // Fill remaining coins in empty spaces between elements
+    // Fill remaining coins in empty spaces between elements (limited attempts for performance)
     let safety = 0;
-    while (placed < count && safety < 1000) {
+    const maxAttempts = Math.min(300, count * 20); // Limit attempts based on count needed
+    while (placed < count && safety < maxAttempts) {
         safety++;
         // Generate random position in viewport
         const margin = 20;
@@ -209,24 +217,31 @@ function addCoinsAroundGacha(count) {
             placed++;
         }
     }
+    });
 }
 
 // 创建散落的硬币（确保至少 TARGET_COINS 个可见）
 function createCoins() {
-    const target = TARGET_COINS; // 初始至少显示的硬币数
-    console.log('Creating up to', target, 'coins');
-    addCoinsAroundGacha(target - coins.length);
-    console.log('Total coins after init:', coins.length, 'Visible:', getVisibleCoinsCount());
+    // Defer coin creation to avoid blocking initial render
+    setTimeout(() => {
+        const target = TARGET_COINS; // 初始至少显示的硬币数
+        console.log('Creating up to', target, 'coins');
+        addCoinsAroundGacha(target - coins.length);
+        console.log('Total coins after init:', coins.length, 'Visible:', getVisibleCoinsCount());
+    }, 100);
 }
 
 // 确保始终有足够的可见硬币
 function ensureVisibleCoins() {
-    const visibleCount = getVisibleCoinsCount();
-    const needed = TARGET_COINS - visibleCount;
-    if (needed > 0) {
-        console.log('Refilling coins: visible =', visibleCount, 'needed =', needed);
-        addCoinsAroundGacha(needed);
-    }
+    // Defer to avoid blocking
+    requestAnimationFrame(() => {
+        const visibleCount = getVisibleCoinsCount();
+        const needed = TARGET_COINS - visibleCount;
+        if (needed > 0) {
+            console.log('Refilling coins: visible =', visibleCount, 'needed =', needed);
+            addCoinsAroundGacha(needed);
+        }
+    });
 }
 
 function isOverlapping(x, y, existingCoins) {
@@ -241,16 +256,110 @@ function isOverlapping(x, y, existingCoins) {
 }
 
 let draggedCoin = null;
+let touchStartX = 0;
+let touchStartY = 0;
+let isDragging = false;
 
 function handleDragStart(e) {
     draggedCoin = this;
     this.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/html', this.outerHTML);
+    if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/html', this.outerHTML);
+    }
 }
 
 function handleDragEnd(e) {
     this.classList.remove('dragging');
+    isDragging = false;
+}
+
+// Touch event handlers for mobile
+function handleTouchStart(e) {
+    e.preventDefault();
+    draggedCoin = this;
+    isDragging = true;
+    this.classList.add('dragging');
+    const touch = e.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    
+    // Get initial position
+    const rect = this.getBoundingClientRect();
+    this.dataset.startX = rect.left;
+    this.dataset.startY = rect.top;
+    this.style.position = 'fixed';
+    this.style.left = rect.left + 'px';
+    this.style.top = rect.top + 'px';
+    this.style.zIndex = '1000';
+}
+
+function handleTouchMove(e) {
+    if (!isDragging || !draggedCoin) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - touchStartX;
+    const deltaY = touch.clientY - touchStartY;
+    
+    draggedCoin.style.left = (parseFloat(draggedCoin.dataset.startX) + deltaX) + 'px';
+    draggedCoin.style.top = (parseFloat(draggedCoin.dataset.startY) + deltaY) + 'px';
+}
+
+function handleTouchEnd(e) {
+    if (!isDragging || !draggedCoin) return;
+    e.preventDefault();
+    isDragging = false;
+    
+    const coinRect = draggedCoin.getBoundingClientRect();
+    const gachaRect = gachaMachine.getBoundingClientRect();
+    
+    // Check if coin is over gacha machine
+    const coinCenterX = coinRect.left + coinRect.width / 2;
+    const coinCenterY = coinRect.top + coinRect.height / 2;
+    
+    if (coinCenterX >= gachaRect.left && coinCenterX <= gachaRect.right &&
+        coinCenterY >= gachaRect.top && coinCenterY <= gachaRect.bottom) {
+        // Coin dropped on gacha machine
+        handleCoinDrop(draggedCoin);
+    } else {
+        // Reset coin position
+        draggedCoin.classList.remove('dragging');
+        draggedCoin.style.position = '';
+        draggedCoin.style.left = '';
+        draggedCoin.style.top = '';
+        draggedCoin.style.zIndex = '';
+        draggedCoin = null;
+    }
+}
+
+function handleCoinDrop(coin) {
+    // 硬币消失动画
+    coin.style.transition = 'all 0.3s ease-out';
+    coin.style.transform = 'scale(0)';
+    coin.style.opacity = '0';
+    
+    setTimeout(() => {
+        coin.remove();
+        coins = coins.filter(c => c.element !== coin);
+        draggedCoin = null;
+        
+        // 增加硬币计数
+        coinCount++;
+        coinCountDisplay.textContent = coinCount;
+        
+        // 生成新硬币，确保至少有 TARGET_COINS 个可见
+        ensureVisibleCoins();
+
+        // 播放扭蛋机旋钮动画并显示扭蛋（drop 后出现）
+        gachaMachine.classList.add('rotating');
+        setTimeout(() => {
+            gachaMachine.classList.remove('rotating');
+        }, 600);
+        // 在旋转稍后显示扭蛋，保持和点击抽取时相同的延迟
+        setTimeout(() => {
+            ball.style.display = 'block';
+        }, 400);
+    }, 300);
 }
 
 // 扭蛋机拖拽区域
@@ -262,33 +371,7 @@ gachaMachine.addEventListener('dragover', (e) => {
 gachaMachine.addEventListener('drop', (e) => {
     e.preventDefault();
     if (draggedCoin) {
-        // 硬币消失动画
-        draggedCoin.style.transition = 'all 0.3s ease-out';
-        draggedCoin.style.transform = 'scale(0)';
-        draggedCoin.style.opacity = '0';
-        
-        setTimeout(() => {
-            draggedCoin.remove();
-            coins = coins.filter(c => c.element !== draggedCoin);
-            draggedCoin = null;
-            
-            // 增加硬币计数
-            coinCount++;
-            coinCountDisplay.textContent = coinCount;
-            
-            // 生成新硬币，确保至少有 TARGET_COINS 个可见
-            ensureVisibleCoins();
-
-            // 播放扭蛋机旋钮动画并显示扭蛋（drop 后出现）
-            gachaMachine.classList.add('rotating');
-            setTimeout(() => {
-                gachaMachine.classList.remove('rotating');
-            }, 600);
-            // 在旋转稍后显示扭蛋，保持和点击抽取时相同的延迟
-            setTimeout(() => {
-                ball.style.display = 'block';
-            }, 400);
-        }, 300);
+        handleCoinDrop(draggedCoin);
     }
 });
 
@@ -359,7 +442,12 @@ window.showForbiddenRects = function() {
     if (tipR) makeRect(tipR, 'blue');
 };
 
-// 初始化
+// 初始化 - 确保ball初始隐藏
+if (ball) {
+    ball.style.display = 'none';
+}
+
+// 初始化硬币（延迟加载以提高性能）
 createCoins();
 
 // 定期检查并补充可见硬币

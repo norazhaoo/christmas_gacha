@@ -23,6 +23,7 @@ body {
     transform: translateY(-50%);
     z-index: 60;
     width: auto;
+    pointer-events: none; /* allow clicks to pass through to coins */
 }
 
 .title-image {
@@ -31,6 +32,7 @@ body {
     min-height: 250px;
     display: block;
     transform: rotate(-8deg);
+    pointer-events: auto; /* but title image itself is clickable */
 }
 
 .game-container {
@@ -110,6 +112,7 @@ body {
     align-self: center;
     position: relative;
     z-index: 55;
+    pointer-events: none; /* allow clicks to pass through to coins */
 }
 
 .coin {
@@ -123,8 +126,10 @@ body {
     cursor: grab;
     user-select: none;
     transition: transform 0.2s;
-    z-index: 1; /* render coins underneath gacha/title/tip */
+    z-index: 30; /* higher z-index to ensure coins are clickable, but below gacha/title/tip when not dragging */
     object-fit: contain;
+    pointer-events: auto;
+    touch-action: none; /* enable touch dragging on mobile */
 }
 
 .coin:active {
