@@ -6,6 +6,8 @@ let COIN_RADIUS = null; // will be filled by getCoinRadius()
 let MIN_COIN_DISTANCE = null;
 // Target number of coins to keep on screen
 const TARGET_COINS = 18;
+// Initial coins to load (reduced for faster initial load, especially on mobile)
+const INITIAL_COINS = 12;
 
 // Measure the rendered coin size (returns radius in page pixels)
 function getCoinRadius() {
@@ -39,20 +41,39 @@ const coinCountDisplay = document.getElementById('coinCount');
 const gifts = ['asset/bell.png', 'asset/socks.png', 'asset/hat.png', 'asset/snowflake.png', 'asset/elf.png', 'asset/santa.png'];
 let coins = [];
 
-// Helper: check if a point is in viewport
+// Helper: check if a point is in viewport and not blocked by UI elements
 function isInViewport(x, y) {
     const margin = 20; // margin from viewport edges
-    return x >= margin && x <= window.innerWidth - margin && 
-           y >= margin && y <= window.innerHeight - margin;
+    if (x < margin || x > window.innerWidth - margin || 
+        y < margin || y > window.innerHeight - margin) {
+        return false;
+    }
+    
+    // Check if point is near coin count display (top-right corner)
+    const coinDisplay = document.querySelector('.coin-count-display');
+    if (coinDisplay) {
+        const rect = coinDisplay.getBoundingClientRect();
+        const padding = 30; // extra padding around the button
+        if (x >= rect.left - padding && x <= rect.right + padding &&
+            y >= rect.top - padding && y <= rect.bottom + padding) {
+            return false;
+        }
+    }
+    
+    return true;
 }
 
-// Helper: get visible coins count
+// Helper: get visible coins count (coins that are at least partially visible)
 function getVisibleCoinsCount() {
     return coins.filter(coin => {
+        if (!coin.element || !coin.element.parentNode) {
+            return false; // Coin has been removed
+        }
         const rect = coin.element.getBoundingClientRect();
-        return rect.top >= 0 && rect.left >= 0 && 
-               rect.bottom <= window.innerHeight && 
-               rect.right <= window.innerWidth;
+        // Check if coin is at least partially visible (overlaps with viewport)
+        return rect.bottom > 0 && rect.right > 0 && 
+               rect.top < window.innerHeight && 
+               rect.left < window.innerWidth;
     }).length;
 }
 
@@ -113,15 +134,29 @@ function createCoinAtPage(pageX, pageY) {
 function addCoinsAroundGacha(count) {
     if (count <= 0) return;
     
-    // Use requestAnimationFrame to avoid blocking initial render
+    // Use requestAnimationFrame to avoid blocking, especially on iOS
     requestAnimationFrame(() => {
-        const gashaRect = gachaMachine.getBoundingClientRect();
-        const tipEl = document.querySelector('.tip-image');
-        const tipRect = tipEl ? tipEl.getBoundingClientRect() : null;
-        const titleRect = document.querySelector('.title-container').getBoundingClientRect();
+        // Further defer on mobile devices for better performance
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        if (isMobile) {
+            setTimeout(() => {
+                addCoinsAroundGachaInternal(count);
+            }, 50);
+            return;
+        }
+        addCoinsAroundGachaInternal(count);
+    });
+}
 
-        // ensure we have an up-to-date coin radius
-        const measuredRadius = getCoinRadius();
+function addCoinsAroundGachaInternal(count) {
+    if (count <= 0) return 0;
+    const gashaRect = gachaMachine.getBoundingClientRect();
+    const tipEl = document.querySelector('.tip-image');
+    const tipRect = tipEl ? tipEl.getBoundingClientRect() : null;
+    const titleRect = document.querySelector('.title-container').getBoundingClientRect();
+
+    // ensure we have an up-to-date coin radius
+    const measuredRadius = getCoinRadius();
 
     // Calculate centers and radii for all three elements
     const elements = [];
@@ -200,9 +235,9 @@ function addCoinsAroundGacha(count) {
         }
     }
 
-    // Fill remaining coins in empty spaces between elements (limited attempts for performance)
+    // Fill remaining coins in empty spaces between elements (increased attempts for better placement)
     let safety = 0;
-    const maxAttempts = Math.min(300, count * 20); // Limit attempts based on count needed
+    const maxAttempts = Math.max(500, count * 30); // Increased attempts for better placement
     while (placed < count && safety < maxAttempts) {
         safety++;
         // Generate random position in viewport
@@ -217,18 +252,30 @@ function addCoinsAroundGacha(count) {
             placed++;
         }
     }
-    });
+    
+    return placed; // Return actual number of coins placed
 }
 
-// 创建散落的硬币（确保至少 TARGET_COINS 个可见）
+// 创建散落的硬币（初始加载较少硬币以提高性能）
 function createCoins() {
+    // Detect mobile devices for longer delay
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    const initialDelay = isMobile ? 300 : 100; // Longer delay on mobile
+    
     // Defer coin creation to avoid blocking initial render
     setTimeout(() => {
-        const target = TARGET_COINS; // 初始至少显示的硬币数
-        console.log('Creating up to', target, 'coins');
+        const target = INITIAL_COINS; // 初始加载较少的硬币以提高性能
+        console.log('Creating initial', target, 'coins');
         addCoinsAroundGacha(target - coins.length);
+        // Then fill to target after a delay (longer on mobile)
+        setTimeout(() => {
+            const needed = TARGET_COINS - getVisibleCoinsCount();
+            if (needed > 0) {
+                addCoinsAroundGacha(needed);
+            }
+        }, isMobile ? 1000 : 500);
         console.log('Total coins after init:', coins.length, 'Visible:', getVisibleCoinsCount());
-    }, 100);
+    }, initialDelay);
 }
 
 // 确保始终有足够的可见硬币
@@ -239,7 +286,16 @@ function ensureVisibleCoins() {
         const needed = TARGET_COINS - visibleCount;
         if (needed > 0) {
             console.log('Refilling coins: visible =', visibleCount, 'needed =', needed);
-            addCoinsAroundGacha(needed);
+            // Use the internal function directly to get actual placement count
+            const actuallyPlaced = addCoinsAroundGachaInternal(needed);
+            if (actuallyPlaced < needed) {
+                // If not all coins were placed, try again after a delay
+                const remaining = needed - actuallyPlaced;
+                setTimeout(() => {
+                    const secondAttempt = addCoinsAroundGachaInternal(remaining);
+                    console.log('Second attempt: placed', secondAttempt, 'more coins. Total visible:', getVisibleCoinsCount());
+                }, 200);
+            }
         }
     });
 }

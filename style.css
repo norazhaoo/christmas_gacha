@@ -253,7 +253,8 @@ body {
     font-weight: bold;
     color: #d32f2f;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-    z-index: 20;
+    z-index: 100;
+    pointer-events: auto;
 }
 
 /* 响应式设计 - 避免title和扭蛋机重叠 */
