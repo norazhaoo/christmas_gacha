@@ -1,7 +1,7 @@
 <h1>Chrismas Gacha machine!</h1>
 
 <https://norazhaoo.github.io/christmas_gacha/> 
-<p>Drag coin to the machine and shake!!</p>
+<p>Drag the coins to the machine and shake!!</p>
 
 <strong>Full AI</strong> generated project, including the UI design.
 
