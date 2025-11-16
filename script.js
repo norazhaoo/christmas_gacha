@@ -124,17 +124,38 @@ function isInViewport(x, y) {
 }
 
 // Helper: get visible coins count (coins that are at least partially visible)
-function getVisibleCoinsCount() {
-    return coins.filter(coin => {
-        if (!coin.element || !coin.element.parentNode) {
-            return false; // Coin has been removed
-        }
-        const rect = coin.element.getBoundingClientRect();
-        // Check if coin is at least partially visible (overlaps with viewport)
-        return rect.bottom > 0 && rect.right > 0 && 
-               rect.top < window.innerHeight && 
-               rect.left < window.innerWidth;
-    }).length;
+// Optimized: cache result and only recalculate when needed
+let cachedVisibleCount = 0;
+let visibleCountCacheTime = 0;
+const VISIBLE_COUNT_CACHE_DURATION = 500; // Cache for 500ms
+
+function getVisibleCoinsCount(forceRecalculate = false) {
+    const now = Date.now();
+    // Use cached value if available and fresh
+    if (!forceRecalculate && (now - visibleCountCacheTime) < VISIBLE_COUNT_CACHE_DURATION) {
+        return cachedVisibleCount;
+    }
+    
+    // Only check coins that are still in DOM (filter removed ones first)
+    const validCoins = coins.filter(coin => coin.element && coin.element.parentNode);
+    
+    // For performance, use a simpler check: just count valid coins
+    // Most coins should be visible if they're in the DOM
+    // Only do expensive getBoundingClientRect check if we have too many coins
+    if (validCoins.length <= TARGET_COINS * 2) {
+        cachedVisibleCount = validCoins.filter(coin => {
+            const rect = coin.element.getBoundingClientRect();
+            return rect.bottom > 0 && rect.right > 0 && 
+                   rect.top < window.innerHeight && 
+                   rect.left < window.innerWidth;
+        }).length;
+    } else {
+        // If too many coins, just return valid count (optimization)
+        cachedVisibleCount = validCoins.length;
+    }
+    
+    visibleCountCacheTime = now;
+    return cachedVisibleCount;
 }
 
 // Helper: distance from a point to a rect (0 if inside rect)
@@ -176,6 +197,8 @@ function createCoinAtPage(pageX, pageY) {
 
     gameContainer.appendChild(coin);
     coins.push({ element: coin, x: pageX, y: pageY });
+    // Invalidate visible count cache when new coin is added
+    visibleCountCacheTime = 0;
     if (COIN_DEBUG) console.log('Coin created at:', pageX, pageY, 'Total coins:', coins.length);
     // Sanity check: warn if this coin is too close to gacha
     try {
@@ -339,26 +362,47 @@ function createCoins() {
     }, initialDelay);
 }
 
-// 确保始终有足够的可见硬币
-function ensureVisibleCoins() {
-    // Defer to avoid blocking
-    requestAnimationFrame(() => {
-        const visibleCount = getVisibleCoinsCount();
-        const needed = TARGET_COINS - visibleCount;
-        if (needed > 0) {
-            console.log('Refilling coins: visible =', visibleCount, 'needed =', needed);
-            // Use the internal function directly to get actual placement count
-            const actuallyPlaced = addCoinsAroundGachaInternal(needed);
-            if (actuallyPlaced < needed) {
-                // If not all coins were placed, try again after a delay
-                const remaining = needed - actuallyPlaced;
-                setTimeout(() => {
-                    const secondAttempt = addCoinsAroundGachaInternal(remaining);
-                    console.log('Second attempt: placed', secondAttempt, 'more coins. Total visible:', getVisibleCoinsCount());
-                }, 200);
+// 确保始终有足够的可见硬币（使用防抖机制）
+let ensureVisibleCoinsTimeout = null;
+const ENSURE_COINS_DEBOUNCE = 1000; // 防抖延迟1秒
+
+function ensureVisibleCoins(immediate = false) {
+    // 清除之前的延迟调用
+    if (ensureVisibleCoinsTimeout) {
+        clearTimeout(ensureVisibleCoinsTimeout);
+        ensureVisibleCoinsTimeout = null;
+    }
+    
+    const execute = () => {
+        // 使用 requestAnimationFrame 避免阻塞，但减少调用频率
+        requestAnimationFrame(() => {
+            const visibleCount = getVisibleCoinsCount(true); // Force recalculate
+            const needed = TARGET_COINS - visibleCount;
+            if (needed > 0) {
+                // Use the internal function directly to get actual placement count
+                const actuallyPlaced = addCoinsAroundGachaInternal(needed);
+                if (actuallyPlaced < needed) {
+                    // If not all coins were placed, try again after a delay
+                    const remaining = needed - actuallyPlaced;
+                    setTimeout(() => {
+                        const secondAttempt = addCoinsAroundGachaInternal(remaining);
+                        // Invalidate cache after adding coins
+                        visibleCountCacheTime = 0;
+                    }, 500); // Increased delay for mobile performance
+                } else {
+                    // Invalidate cache after adding coins
+                    visibleCountCacheTime = 0;
+                }
             }
-        }
-    });
+        });
+    };
+    
+    if (immediate) {
+        execute();
+    } else {
+        // 防抖：延迟执行，避免频繁调用
+        ensureVisibleCoinsTimeout = setTimeout(execute, ENSURE_COINS_DEBOUNCE);
+    }
 }
 
 function isOverlapping(x, y, existingCoins) {
@@ -373,6 +417,7 @@ function isOverlapping(x, y, existingCoins) {
 }
 
 let draggedCoin = null;
+let lastDropTime = 0; // 记录最后一次drop操作的时间，用于防止drop后触发click
 let touchStartX = 0;
 let touchStartY = 0;
 let isDragging = false;
@@ -438,6 +483,8 @@ function handleTouchEnd(e) {
         coinCenterY >= gachaRect.top && coinCenterY <= gachaRect.bottom) {
         // Coin dropped on gacha machine
         handleCoinDrop(draggedCoin);
+        // 记录drop时间，防止后续的click事件
+        lastDropTime = Date.now();
     } else {
         // Reset coin position
         draggedCoin.classList.remove('dragging');
@@ -464,18 +511,10 @@ function handleCoinDrop(coin) {
         coinCount++;
         coinCountDisplay.textContent = coinCount;
         
-        // 生成新硬币，确保至少有 TARGET_COINS 个可见
-        ensureVisibleCoins();
-
-        // 播放扭蛋机旋钮动画并显示扭蛋（drop 后出现）
-        gachaMachine.classList.add('rotating');
-        setTimeout(() => {
-            gachaMachine.classList.remove('rotating');
-        }, 600);
-        // 在旋转稍后显示扭蛋，保持和点击抽取时相同的延迟
-        setTimeout(() => {
-            ball.style.display = 'block';
-        }, 400);
+        // 生成新硬币，确保至少有 TARGET_COINS 个可见（立即执行，因为硬币刚被移除）
+        ensureVisibleCoins(true);
+        
+        // 投币后不自动显示扭蛋，需要用户点击扭蛋机才能抽取
     }, 300);
 }
 
@@ -489,11 +528,20 @@ gachaMachine.addEventListener('drop', (e) => {
     e.preventDefault();
     if (draggedCoin) {
         handleCoinDrop(draggedCoin);
+        // 记录drop时间，防止后续的click事件
+        lastDropTime = Date.now();
     }
 });
 
 // 点击扭蛋机抽取
-gachaMachine.addEventListener('click', () => {
+gachaMachine.addEventListener('click', (e) => {
+    // 如果刚刚进行了drop操作（300ms内），忽略这次click
+    if (Date.now() - lastDropTime < 300) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+    }
+    
     if (coinCount > 0) {
         coinCount--;
         coinCountDisplay.textContent = coinCount;
@@ -577,10 +625,39 @@ if (document.readyState === 'loading') {
 // 初始化硬币（延迟加载以提高性能）
 createCoins();
 
-// 定期检查并补充可见硬币
-setInterval(() => {
-    ensureVisibleCoins();
-}, 2000); // 每2秒检查一次
+// 使用更长的间隔定期检查（减少性能影响）
+// 主要依赖事件驱动（硬币被移除时自动补充）
+let checkInterval = null;
+function startPeriodicCheck() {
+    // 只在页面可见时检查，减少后台性能消耗
+    if (document.hidden) return;
+    
+    // 使用更长的间隔：10秒检查一次（而不是2秒）
+    if (checkInterval) clearInterval(checkInterval);
+    checkInterval = setInterval(() => {
+        // 只在页面可见时执行检查
+        if (!document.hidden) {
+            ensureVisibleCoins();
+        }
+    }, 10000); // 改为10秒检查一次
+}
+
+// 页面可见性变化时管理检查
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        // 页面隐藏时清除定时器
+        if (checkInterval) {
+            clearInterval(checkInterval);
+            checkInterval = null;
+        }
+    } else {
+        // 页面显示时重新启动检查
+        startPeriodicCheck();
+    }
+});
+
+// 启动定期检查
+startPeriodicCheck();
 
 // 窗口大小改变时重新生成硬币
 let resizeTimeout;
